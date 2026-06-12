@@ -13,7 +13,12 @@ name: watch-and-build
 on:
   schedule:
     - cron: "*/30 * * * *"   # 每 30 分钟检测一次
-  workflow_dispatch: {}       # 也支持手动触发
+  workflow_dispatch:           # 手动触发
+    inputs:
+      force:
+        description: "强制重建最新版(即使 releases/ 已存在),用于验证 CI 全流程"
+        type: boolean
+        default: false
 
 permissions:
   contents: write             # 提交 changelog;改用 PR 流程时配合 pull-requests: write
@@ -36,12 +41,12 @@ jobs:
           build=$(awk -F'\t' '$1=="latest_build"{print $2}' /tmp/d/metadata.tsv)
           echo "short=$short" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
-          if [ -f "releases/v${short}.md" ]; then
+          if [ -f "releases/v${short}.md" ] && [ "${{ github.event.inputs.force }}" != "true" ]; then
             echo "should_build=false" >> "$GITHUB_OUTPUT"
             echo "releases/v${short}.md 已存在,跳过。"
           else
             echo "should_build=true" >> "$GITHUB_OUTPUT"
-            echo "发现新版 ${short} (build ${build}),将重建。"
+            echo "将重建 ${short} (build ${build})。"
           fi
 
   build:
@@ -68,6 +73,10 @@ jobs:
           [ -n "$CODEX_CONFIG_TOML" ] && printf '%s' "$CODEX_CONFIG_TOML" > ~/.codex/config.toml || true
 
       - name: Run pipeline
+        env:
+          # 可选:在仓库 Settings → Variables 设 CODEX_MODEL(如 gpt-5.5);留空则用 codex 默认。
+          # 若该模型需要特定 provider,把 ~/.codex/config.toml 也设为 secret CODEX_CONFIG_TOML。
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
         run: scripts/run.sh        # 默认比较最新两版
 
       - name: Publish changelog
