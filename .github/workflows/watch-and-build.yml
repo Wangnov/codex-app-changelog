@@ -1,0 +1,85 @@
+# 监控官方 Codex appcast,发现新版就重建 + diff + LLM 归纳出第三方 changelog。
+#
+# 架构要点:
+#   - detect 作业在便宜的 ubuntu runner 上做轻量检测(只读 appcast,纯标准库);
+#   - build 作业只有在出现 releases/ 里还没有的新版时才启动 macOS runner —— 因为
+#     重建依赖 ditto / codesign / spctl / BinaryDelta,这些是 macOS 专属工具。
+#
+# 需要在仓库 Secrets 配置:
+#   CODEX_AUTH_JSON   —— codex exec 的认证内容(本地是 ~/.codex/auth.json)
+#   CODEX_CONFIG_TOML —— (可选)codex 的 ~/.codex/config.toml,锁定模型/provider
+name: watch-and-build
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # 每 30 分钟检测一次
+  workflow_dispatch: {}       # 也支持手动触发
+
+permissions:
+  contents: write             # 提交 changelog;改用 PR 流程时配合 pull-requests: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      short: ${{ steps.check.outputs.short }}
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - id: check
+        run: |
+          python3 scripts/fetch_appcast.py --work /tmp/d
+          short=$(awk -F'\t' '$1=="latest_short"{print $2}' /tmp/d/metadata.tsv)
+          build=$(awk -F'\t' '$1=="latest_build"{print $2}' /tmp/d/metadata.tsv)
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          if [ -f "releases/v${short}.md" ]; then
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo "releases/v${short}.md 已存在,跳过。"
+          else
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "发现新版 ${short} (build ${build}),将重建。"
+          fi
+
+  build:
+    needs: detect
+    if: needs.detect.outputs.should_build == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: pip install cryptography
+
+      # 安装并认证 Codex CLI。安装方式按官方为准;认证从 Secret 注入。
+      - name: Setup Codex CLI
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          CODEX_CONFIG_TOML: ${{ secrets.CODEX_CONFIG_TOML }}
+        run: |
+          npm install -g @openai/codex          # TODO: 锁定与本地一致的版本
+          mkdir -p ~/.codex
+          printf '%s' "$CODEX_AUTH_JSON" > ~/.codex/auth.json
+          [ -n "$CODEX_CONFIG_TOML" ] && printf '%s' "$CODEX_CONFIG_TOML" > ~/.codex/config.toml || true
+
+      - name: Run pipeline
+        run: scripts/run.sh        # 默认比较最新两版
+
+      - name: Publish changelog
+        run: |
+          short="${{ needs.detect.outputs.short }}"
+          src=$(ls -t work/*/changelog.md | head -n1)
+          mkdir -p releases
+          cp "$src" "releases/v${short}.md"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "releases/v${short}.md"
+          git commit -m "feat(changelog): add ${short}"
+          git push
+          # 备选:用 peter-evans/create-pull-request 走 PR 流程,而非直接 push。
+          # TODO: 触发网站构建 + RSS 生成 +(预留)X 发布。

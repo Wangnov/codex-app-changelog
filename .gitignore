@@ -1,0 +1,24 @@
+# 运行时工作目录(大文件:zip / delta / 重建 bundle / 解包产物)
+work/
+*.zip
+*.delta
+*.app/
+
+# vendored 的 Sparkle BinaryDelta(按需获取,不入库)
+vendor/BinaryDelta
+
+# 凭据:绝不入库(codex auth.json 等只能走 CI secret 注入)
+auth.json
+*.auth
+.env
+.env.*
+*.pem
+*.key
+secrets/
+.codex/
+
+# 杂项
+__pycache__/
+*.pyc
+node_modules/
+.DS_Store
