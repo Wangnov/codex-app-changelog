@@ -90,5 +90,17 @@ jobs:
           git add "releases/v${short}.md"
           git commit -m "feat(changelog): add ${short}"
           git push
-          # 备选:用 peter-evans/create-pull-request 走 PR 流程,而非直接 push。
-          # TODO: 触发网站构建 + RSS 生成 +(预留)X 发布。
+
+      - name: Deploy website to Cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          # 需要 secret CLOUDFLARE_API_TOKEN(权限:Workers Scripts Edit + agentsmirror zone)。
+          # 未配 token 时跳过,不让整条流水线失败 —— changelog 已提交,网站可手动部署。
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "未配置 CLOUDFLARE_API_TOKEN,跳过网站部署(changelog 已入库)"; exit 0
+          fi
+          cd website
+          npm install
+          npm run build
+          npx wrangler deploy
