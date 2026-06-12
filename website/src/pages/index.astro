@@ -10,7 +10,7 @@ const entries = (await getCollection('changelog')).sort(
   <ul class="version-list">
     {entries.map((e) => (
       <li>
-        <a class="version-item" href={`${import.meta.env.BASE_URL}${e.data.version}/`}>
+        <a class="version-item" href={`/changelog/${e.data.version}/`}>
           <div class="version-head">
             <span class="version-num">{e.data.version}</span>
             <span class="version-build">build {e.data.build}</span>
