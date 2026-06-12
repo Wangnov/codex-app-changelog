@@ -20,7 +20,9 @@ echo "== [Windows] $FROM_TAG → $TO_TAG =="
 CL_PLATFORM=windows python3 "$ROOT/scripts/build_llm_input.py" --work "$WORK/win"
 
 echo "== 合并跨平台事实包 =="
+REL_DATE="$(gh release view "$TO_TAG" --repo Wangnov/codex-app-mirror --json createdAt --jq '.createdAt[0:10]' 2>/dev/null || echo '')"
 {
+  echo "本批次发布日期(请用于 frontmatter 的 released 字段): ${REL_DATE:-未知}"
   echo "=== PLATFORM: macOS ==="; cat "$WORK/mac/llm-input.md"
   echo; echo "=== PLATFORM: Windows ==="; cat "$WORK/win/llm-input.md"
 } > "$WORK/cross-input.md"
