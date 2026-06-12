@@ -78,6 +78,7 @@ a:hover { text-decoration: underline; }
 .version-num { font-family: var(--mono); font-size: 1.1rem; font-weight: 600; color: var(--text); }
 .version-build { font-family: var(--mono); font-size: 0.8rem; color: var(--text-faint); }
 .version-date { margin-left: auto; font-family: var(--mono); font-size: 0.8rem; color: var(--text-dim); }
+.platform-badge { font-family: var(--mono); font-size: 0.66rem; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); padding: 1px 6px; border-radius: 4px; letter-spacing: 0.03em; }
 .version-summary { color: var(--text-dim); margin: 8px 0 0; font-size: 0.95rem; }
 
 /* ---- 单篇 ---- */
