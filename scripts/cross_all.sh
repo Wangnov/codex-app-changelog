@@ -6,11 +6,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIMIT="${1:-0}"
 
-# 含 macOS 配对的 release tags,按时间正序(bash 3.2 兼容,不用 mapfile)
+# 含 macOS 配对的 release tags,按 macOS build(tag 里 mac- 后的 -b<N>)递增排序 + 去重。
+# 不用 createdAt:mirror 有 force 重镜像,创建时间顺序 ≠ 版本顺序,会导致 from>to 倒序。
 TAGS=()
 while IFS= read -r t; do TAGS+=("$t"); done < <(
-  gh release list --repo Wangnov/codex-app-mirror --limit 60 --json tagName,createdAt \
-    --jq 'sort_by(.createdAt)|.[].tagName' | grep -E '\-mac(-arm64)?-[0-9]')
+  gh release list --repo Wangnov/codex-app-mirror --limit 60 --json tagName \
+    --jq '.[].tagName' | grep -E '\-mac(-arm64)?-[0-9]' \
+    | sed -E 's/.*-mac(-arm64)?-[0-9.]+-b([0-9]+).*/\2\t&/' | sort -n -k1 -u | cut -f2)
 
 echo "含 macOS 配对的 release: ${#TAGS[@]} 个 → $(( ${#TAGS[@]} - 1 )) 对"
 done_n=0; i=1
