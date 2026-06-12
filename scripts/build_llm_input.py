@@ -62,20 +62,36 @@ def main():
                f"发布 {meta.get('latest_pub','?')}")
 
     out.append(section("验证与可复现"))
-    sha = (w / "download-sha256.txt")
-    if sha.exists():
-        out.append("下载制品 SHA-256:\n```\n" + sha.read_text().strip() + "\n```")
-    out.append(f"- 上一版全量包: {meta.get('previous_full_url','?')} "
-               f"({meta.get('previous_full_len','?')} bytes)")
-    out.append(f"  - EdDSA 签名: `{meta.get('previous_full_sig','?')}`")
-    out.append(f"- 官方增量包: {meta.get('latest_delta_url','?')} "
-               f"({meta.get('latest_delta_len','?')} bytes)")
-    out.append(f"  - EdDSA 签名: `{meta.get('latest_delta_sig','?')}`")
-    out.append("- 两个制品均通过官方 Sparkle 公钥 EdDSA 验签。")
-    spctl = (w / "latest-spctl.txt")
-    if spctl.exists():
-        out.append("- 重建产物签名验证(codesign --deep --strict 通过):\n```\n"
-                   + spctl.read_text().strip() + "\n```")
+    if meta.get("mode") == "full-pair":
+        # 历史回填:超出 appcast 增量窗口,下载两个官方全量包直接比较。
+        # 信任根为 Apple 公证 + OpenAI Developer ID 代码签名(codesign/spctl)。
+        out.append("本版为历史回填:两个版本均超出官方 Sparkle 增量窗口,改为下载两个官方全量包"
+                   "直接比较。下方给出两个全量包的 SHA-256 与代码签名/公证的实际验证结果。"
+                   "注意:部分早期版本的签名证书后来被吊销,验证会显示 `CSSMERR_TP_CERT_REVOKED` —— "
+                   "这只影响该版本能否被系统安全安装,不影响对其 bundle 内容做差异分析;若出现请如实说明。")
+        out.append(f"- 上一版全量包: {meta.get('previous_full_url','?')}")
+        out.append(f"  - SHA-256: `{meta.get('previous_full_sha256','?')}`")
+        out.append(f"- 最新版全量包: {meta.get('latest_full_url','?')}")
+        out.append(f"  - SHA-256: `{meta.get('latest_full_sha256','?')}`")
+        for label, fn in [("上一版", "previous-spctl.txt"), ("最新版", "latest-spctl.txt")]:
+            p = w / fn
+            if p.exists():
+                out.append(f"- {label}公证验证:\n```\n" + p.read_text().strip() + "\n```")
+    else:
+        sha = (w / "download-sha256.txt")
+        if sha.exists():
+            out.append("下载制品 SHA-256:\n```\n" + sha.read_text().strip() + "\n```")
+        out.append(f"- 上一版全量包: {meta.get('previous_full_url','?')} "
+                   f"({meta.get('previous_full_len','?')} bytes)")
+        out.append(f"  - EdDSA 签名: `{meta.get('previous_full_sig','?')}`")
+        out.append(f"- 官方增量包: {meta.get('latest_delta_url','?')} "
+                   f"({meta.get('latest_delta_len','?')} bytes)")
+        out.append(f"  - EdDSA 签名: `{meta.get('latest_delta_sig','?')}`")
+        out.append("- 两个制品均通过官方 Sparkle 公钥 EdDSA 验签。")
+        spctl = (w / "latest-spctl.txt")
+        if spctl.exists():
+            out.append("- 重建产物签名验证(codesign --deep --strict 通过):\n```\n"
+                       + spctl.read_text().strip() + "\n```")
 
     # ---- bundle 文件树概览 ----
     fds = w / "file-diff-summary.json"
