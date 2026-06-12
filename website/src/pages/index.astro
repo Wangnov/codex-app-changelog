@@ -1,0 +1,24 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../layouts/Base.astro';
+
+const entries = (await getCollection('changelog')).sort(
+  (a, b) => b.data.build - a.data.build,
+);
+---
+<Base title="Codex App Changelog · 第三方变更日志">
+  <ul class="version-list">
+    {entries.map((e) => (
+      <li>
+        <a class="version-item" href={`/${e.data.version}/`}>
+          <div class="version-head">
+            <span class="version-num">{e.data.version}</span>
+            <span class="version-build">build {e.data.build}</span>
+            <span class="version-date">{e.data.released}</span>
+          </div>
+          <p class="version-summary">{e.data.summary}</p>
+        </a>
+      </li>
+    ))}
+  </ul>
+</Base>

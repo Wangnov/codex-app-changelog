@@ -1,0 +1,15 @@
+{
+  "name": "codex-app-changelog-site",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "sync": "node scripts/sync-releases.mjs",
+    "dev": "npm run sync && astro dev",
+    "build": "npm run sync && astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "astro": "^5.6.0",
+    "@astrojs/rss": "^4.0.11"
+  }
+}

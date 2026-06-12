@@ -1,0 +1,42 @@
+---
+import '../styles/global.css';
+const { title, description } = Astro.props;
+const desc = description ?? '第三方、自动化的 OpenAI Codex 桌面版逆向变更日志';
+---
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={desc} />
+    <link rel="alternate" type="application/rss+xml" title="Codex App Changelog" href="/rss.xml" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="wrap">
+        <h1 class="site-title">
+          <span class="prompt">$</span> codex-app-changelog
+          <span class="badge-unofficial">非官方</span>
+        </h1>
+        <p class="site-tagline">
+          基于官方 Sparkle 更新包逆向重建,逐版还原 OpenAI Codex 桌面版「具体改了什么」——补上官方不写的那一层。
+        </p>
+        <nav class="site-nav">
+          <a href="/">版本列表</a>
+          <a href="/rss.xml">RSS</a>
+          <a href="https://github.com/Wangnov/codex-app-changelog">GitHub</a>
+        </nav>
+      </div>
+    </header>
+    <main class="wrap">
+      <slot />
+    </main>
+    <footer class="site-footer">
+      <div class="wrap">
+        <span>与 OpenAI 无关 · 不重分发官方二进制 · 仅发布差异结论</span>
+        <span>由 codex exec 自动归纳生成</span>
+      </div>
+    </footer>
+  </body>
+</html>

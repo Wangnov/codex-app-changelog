@@ -1,0 +1,21 @@
+---
+import { getCollection, render } from 'astro:content';
+import Base from '../layouts/Base.astro';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('changelog');
+  return entries.map((e) => ({
+    params: { slug: e.data.version },
+    props: { entry: e },
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+---
+<Base title={`${entry.data.version} · Codex App Changelog`} description={entry.data.summary}>
+  <p class="back-link" style="margin-top:32px;"><a href="/">← 版本列表</a></p>
+  <article class="prose">
+    <Content />
+  </article>
+</Base>
