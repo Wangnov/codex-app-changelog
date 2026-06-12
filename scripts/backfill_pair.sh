@@ -17,14 +17,14 @@ dl() {  # url dest —— 已存在且非空则跳过(便于复用/续跑)
   curl -fL --retry 5 --retry-all-errors --connect-timeout 20 --speed-time 60 --speed-limit 1024 "$1" -o "$2"
 }
 PREV_ZIP="$WORK/previous-$FROM.zip"; LATEST_ZIP="$WORK/latest-$TO.zip"
-echo "[backfill $FROM→$TO] 下载全量包…"
+echo "[backfill ${FROM} -> ${TO}] 下载全量包…"
 dl "$BASE/Codex-darwin-arm64-$FROM.zip" "$PREV_ZIP"
 dl "$BASE/Codex-darwin-arm64-$TO.zip" "$LATEST_ZIP"
 
 PREV_ROOT="$WORK/previous-extract"; LATEST_ROOT="$WORK/latest-reconstructed"
 PREV_APP="$PREV_ROOT/Codex.app"; LATEST_APP="$LATEST_ROOT/Codex.app"
 rm -rf "$PREV_ROOT" "$LATEST_ROOT"; mkdir -p "$PREV_ROOT" "$LATEST_ROOT"
-echo "[backfill $FROM→$TO] 解包…"
+echo "[backfill ${FROM} -> ${TO}] 解包…"
 ditto -x -k "$PREV_ZIP" "$PREV_ROOT"
 ditto -x -k "$LATEST_ZIP" "$LATEST_ROOT"
 for spec in "$PREV_ROOT|$PREV_APP" "$LATEST_ROOT|$LATEST_APP"; do
@@ -38,7 +38,7 @@ done
 
 # 记录签名/公证状态作为信任根,但不作硬性门槛:早期版本的签名证书可能已被吊销
 # (CSSMERR_TP_CERT_REVOKED),这只影响"能否安全安装",不影响对 bundle 内容做差异分析。
-echo "[backfill $FROM→$TO] 记录签名/公证状态…"
+echo "[backfill ${FROM} -> ${TO}] 记录签名/公证状态…"
 codesign --verify --deep --strict "$LATEST_APP" 2>&1 | tee "$WORK/latest-codesign.txt" || true
 spctl -a -vv "$LATEST_APP"  2>&1 | tee "$WORK/latest-spctl.txt"   || true
 spctl -a -vv "$PREV_APP"    2>&1 | tee "$WORK/previous-spctl.txt" || true
@@ -61,17 +61,17 @@ TO_SHA=$(shasum -a 256 "$LATEST_ZIP" | awk '{print $1}')
   printf 'latest_full_sha256\t%s\n' "$TO_SHA"
 } > "$WORK/metadata.tsv"
 
-echo "[backfill $FROM→$TO] 解包 app.asar…"
+echo "[backfill ${FROM} -> ${TO}] 解包 app.asar…"
 npx --yes @electron/asar list "$PREV_APP/Contents/Resources/app.asar"   > "$WORK/asar-prev-list.txt"
 npx --yes @electron/asar list "$LATEST_APP/Contents/Resources/app.asar" > "$WORK/asar-latest-list.txt"
 rm -rf "$WORK/asar-prev-extract" "$WORK/asar-latest-extract"
 npx --yes @electron/asar extract "$PREV_APP/Contents/Resources/app.asar"   "$WORK/asar-prev-extract"
 npx --yes @electron/asar extract "$LATEST_APP/Contents/Resources/app.asar" "$WORK/asar-latest-extract"
 
-echo "[backfill $FROM→$TO] 分层 diff + 事实包…"
+echo "[backfill ${FROM} -> ${TO}] 分层 diff + 事实包…"
 python3 "$ROOT/scripts/diff_bundle.py"   --work "$WORK"
 node    "$ROOT/scripts/diff_asar.mjs"     "$WORK"
 node    "$ROOT/scripts/diff_packages.mjs" "$WORK"
 python3 "$ROOT/scripts/diff_targeted.py" --work "$WORK"
 python3 "$ROOT/scripts/build_llm_input.py" --work "$WORK"
-echo "[backfill $FROM→$TO] 事实包就绪: $WORK/llm-input.md"
+echo "[backfill ${FROM} -> ${TO}] 事实包就绪: $WORK/llm-input.md"
