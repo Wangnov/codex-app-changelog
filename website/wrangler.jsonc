@@ -1,0 +1,15 @@
+{
+  "name": "codex-app-changelog-website",
+  "compatibility_date": "2026-06-04",
+  "workers_dev": false,
+  "assets": {
+    "directory": "./dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none"
+  },
+  // /changelog/* 比官网的 /* 更精确,会优先匹配,不影响官网根路由。
+  "routes": [
+    { "pattern": "codexapp.agentsmirror.com/changelog", "zone_id": "a5bae9b722f3c5fe1a24aaebe7a8e663" },
+    { "pattern": "codexapp.agentsmirror.com/changelog/*", "zone_id": "a5bae9b722f3c5fe1a24aaebe7a8e663" }
+  ]
+}

@@ -1,7 +1,10 @@
 import { defineConfig } from 'astro/config';
 
 export default defineConfig({
-  // 部署后改成实际域名(Cloudflare Pages 默认 *.pages.dev,或自定义域名)
-  site: 'https://codex-app-changelog.pages.dev',
+  site: 'https://codexapp.agentsmirror.com',
+  base: '/changelog',
+  // 输出到 dist/changelog/,这样 Workers assets(directory=./dist)能按
+  // URL /changelog/* 直接命中 dist/changelog/* 文件。
+  outDir: './dist/changelog',
   output: 'static',
 });

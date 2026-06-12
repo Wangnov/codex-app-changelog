@@ -14,7 +14,7 @@ const { entry } = Astro.props;
 const { Content } = await render(entry);
 ---
 <Base title={`${entry.data.version} · Codex App Changelog`} description={entry.data.summary}>
-  <p class="back-link" style="margin-top:32px;"><a href="/">← 版本列表</a></p>
+  <p class="back-link" style="margin-top:32px;"><a href={import.meta.env.BASE_URL}>← 版本列表</a></p>
   <article class="prose">
     <Content />
   </article>

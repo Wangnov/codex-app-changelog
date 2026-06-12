@@ -13,7 +13,7 @@ export async function GET(context) {
       title: `${e.data.version} (build ${e.data.build})`,
       description: e.data.summary,
       pubDate: new Date(e.data.released),
-      link: `/${e.data.version}/`,
+      link: `/changelog/${e.data.version}/`,
     })),
   });
 }
