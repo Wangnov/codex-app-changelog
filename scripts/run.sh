@@ -25,7 +25,7 @@ FETCH_ARGS=()
 # 先在临时目录拉 appcast 定版本,再据 from/to 决定正式 work 目录名。
 TMP_WORK="$(mktemp -d)"
 echo "== [1/8] 拉取 appcast,确定版本对 =="
-python3 "$ROOT/scripts/fetch_appcast.py" --work "$TMP_WORK" "${FETCH_ARGS[@]}"
+python3 "$ROOT/scripts/fetch_appcast.py" --work "$TMP_WORK" ${FETCH_ARGS[@]+"${FETCH_ARGS[@]}"}
 F="$(awk -F'\t' '$1=="previous_build"{print $2}' "$TMP_WORK/metadata.tsv")"
 T="$(awk -F'\t' '$1=="latest_build"{print $2}' "$TMP_WORK/metadata.tsv")"
 [[ -z "$WORK" ]] && WORK="$ROOT/work/${F}-${T}"

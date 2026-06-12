@@ -13,7 +13,9 @@ OUT="$WORK/changelog.md"
 [ -f "$INPUT" ] || { echo "缺少 $INPUT —— 先跑 build_llm_input.py" >&2; exit 1; }
 [ -f "$PROMPT_FILE" ] || { echo "缺少提示词 $PROMPT_FILE" >&2; exit 1; }
 
-ARGS=(exec --skip-git-repo-check -s read-only --color never -o "$OUT")
+# 固定 reasoning effort,避免 CI(无 config.toml)退化到 none 而拉低质量。
+ARGS=(exec --skip-git-repo-check -s read-only --color never -o "$OUT"
+      -c "model_reasoning_effort=${CODEX_REASONING:-xhigh}")
 [ -n "${CODEX_MODEL:-}" ] && ARGS+=(-m "$CODEX_MODEL")
 
 echo "[analyze] codex exec → $OUT (model=${CODEX_MODEL:-codex 默认}, 事实包 $(wc -c < "$INPUT") 字节)"
