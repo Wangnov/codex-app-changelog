@@ -18,7 +18,9 @@ if [ "${1:-}" = "--one" ]; then
   if /bin/bash "$ROOT/scripts/backfill_pair.sh" "$FROM" "$TO" "$W" "$FD" "$TD" > "$W/run.log" 2>&1 \
      && bash "$ROOT/scripts/analyze.sh" "$W" >> "$W/run.log" 2>&1; then
     cp "$W/changelog.md" "$ROOT/releases/v${TO}.md"
-    echo "[ok] $FROM -> $TO  (v${TO}.md)"
+    mkdir -p "$ROOT/releases/en"
+    [ -f "$W/changelog-en.md" ] && cp "$W/changelog-en.md" "$ROOT/releases/en/v${TO}.md"
+    echo "[ok] $FROM -> $TO"
   else
     echo "[FAIL] $FROM -> $TO  (见 $W/run.log)"
   fi

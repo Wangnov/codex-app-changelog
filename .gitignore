@@ -22,3 +22,6 @@ __pycache__/
 *.pyc
 node_modules/
 .DS_Store
+
+# wrangler 本地缓存/临时文件(含账号标识,不入库)
+.wrangler/

@@ -82,14 +82,24 @@ jobs:
       - name: Publish changelog
         run: |
           short="${{ needs.detect.outputs.short }}"
-          src=$(ls -t work/*/changelog.md | head -n1)
-          mkdir -p releases
-          cp "$src" "releases/v${short}.md"
+          dir=$(dirname "$(ls -t work/*/changelog.md | head -n1)")
+          mkdir -p releases releases/en
+          cp "$dir/changelog.md" "releases/v${short}.md"
+          [ -f "$dir/changelog-en.md" ] && cp "$dir/changelog-en.md" "releases/en/v${short}.md"
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "releases/v${short}.md"
+          git add "releases/v${short}.md" "releases/en/v${short}.md"
           git commit -m "feat(changelog): add ${short}"
           git push
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          short="${{ needs.detect.outputs.short }}"
+          # 已存在则跳过(幂等);正文用中文版 changelog。
+          gh release view "v${short}" >/dev/null 2>&1 && { echo "Release v${short} 已存在"; exit 0; }
+          gh release create "v${short}" --title "v${short}" --notes-file "releases/v${short}.md"
 
       - name: Deploy website to Cloudflare
         env:

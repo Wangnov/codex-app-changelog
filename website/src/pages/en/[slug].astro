@@ -1,9 +1,9 @@
 ---
 import { getCollection, render } from 'astro:content';
-import Base from '../layouts/Base.astro';
+import Base from '../../layouts/Base.astro';
 
 export async function getStaticPaths() {
-  const entries = await getCollection('changelog_zh');
+  const entries = await getCollection('changelog_en');
   return entries.map((e) => ({
     params: { slug: e.data.version },
     props: { entry: e },
@@ -13,7 +13,7 @@ export async function getStaticPaths() {
 const { entry } = Astro.props;
 const { Content } = await render(entry);
 ---
-<Base title={`${entry.data.version} · Codex App Changelog`} description={entry.data.summary} lang="zh" version={entry.data.version}>
-  <p class="back-link" style="margin-top:32px;"><a href="/changelog/">← 版本列表</a></p>
+<Base title={`${entry.data.version} · Codex App Changelog`} description={entry.data.summary} lang="en" version={entry.data.version}>
+  <p class="back-link" style="margin-top:32px;"><a href="/changelog/en/">← Versions</a></p>
   <article class="prose"><Content /></article>
 </Base>
