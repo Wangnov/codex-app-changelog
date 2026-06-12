@@ -13,6 +13,11 @@ const schema = z.object({
   method: z.string().optional(),
   summary: z.string(),
   official_release_notes: z.boolean().optional(),
+  // 跨平台篇额外字段(单平台篇没有,故 optional)
+  mac_version: z.string().optional(),
+  mac_build: z.number().optional(),
+  win_version: z.string().optional(),
+  platforms: z.array(z.string()).optional(),
 });
 
 // 中英两套(由 scripts/sync-releases.mjs 从 releases/ 与 releases/en/ 同步进来)。

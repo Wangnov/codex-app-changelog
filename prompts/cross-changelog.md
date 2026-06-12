@@ -22,6 +22,8 @@ YAML frontmatter:
 ```yaml
 ---
 title: "Codex 桌面版 <批次主版本,用 macOS short>"
+version: "<macOS short,与 mac_version 相同,供网站索引>"
+build: <macOS build,与 mac_build 相同>
 mac_version: "<macOS short>"
 mac_build: <macOS build>
 win_version: "<Windows version>"
