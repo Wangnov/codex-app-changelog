@@ -12,7 +12,7 @@ name: watch-and-build
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # 每 30 分钟检测一次
+    - cron: "0 * * * *"      # 每小时检测一次(官方一天最多几版;detect 在 ubuntu 上很轻,按需可调快/慢)
   workflow_dispatch:           # 手动触发
     inputs:
       force:
@@ -67,7 +67,7 @@ jobs:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
           CODEX_CONFIG_TOML: ${{ secrets.CODEX_CONFIG_TOML }}
         run: |
-          npm install -g @openai/codex          # TODO: 锁定与本地一致的版本
+          npm install -g @openai/codex          # CI 已验证可用;auth 走下方 secret,模型走 vars.CODEX_MODEL
           mkdir -p ~/.codex
           printf '%s' "$CODEX_AUTH_JSON" > ~/.codex/auth.json
           [ -n "$CODEX_CONFIG_TOML" ] && printf '%s' "$CODEX_CONFIG_TOML" > ~/.codex/config.toml || true
