@@ -55,6 +55,11 @@ jobs:
     needs: detect
     if: needs.detect.outputs.should_build == 'true'
     runs-on: macos-latest
+    env:
+      # 脚本里有中文/箭头等多字节字符,CI 默认 LANG=C 会把 `$VAR→` 的箭头字节当变量名,
+      # 触发 unbound variable。强制 UTF-8 locale。
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
