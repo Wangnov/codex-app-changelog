@@ -29,10 +29,13 @@ def manifest(root: pathlib.Path) -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", required=True)
+    # bundle 解包根:macOS 默认 Codex.app;Windows 传 previous-extract/app 等
+    ap.add_argument("--prev-root", default="previous-extract/Codex.app")
+    ap.add_argument("--new-root", default="latest-reconstructed/Codex.app")
     args = ap.parse_args()
     w = pathlib.Path(args.work)
-    pm = manifest(w / "previous-extract/Codex.app")
-    nm = manifest(w / "latest-reconstructed/Codex.app")
+    pm = manifest(w / args.prev_root)
+    nm = manifest(w / args.new_root)
     added = sorted(set(nm) - set(pm))
     removed = sorted(set(pm) - set(nm))
     common = set(pm) & set(nm)

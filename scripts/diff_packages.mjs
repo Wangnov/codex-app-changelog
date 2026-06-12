@@ -6,10 +6,11 @@ import fs from "node:fs";
 import path from "node:path";
 
 const lab = process.argv[2];
-if (!lab) { console.error("用法: diff_packages.mjs <work-dir>"); process.exit(1); }
-const roots = {
-  prev: path.join(lab, "previous-extract/Codex.app/Contents/Resources/cua_node/lib/node_modules"),
-  next: path.join(lab, "latest-reconstructed/Codex.app/Contents/Resources/cua_node/lib/node_modules") };
+if (!lab) { console.error("用法: diff_packages.mjs <work-dir> [prev-cua-rel] [new-cua-rel]"); process.exit(1); }
+// cua_node 的 node_modules 相对 work 的路径:macOS 默认 Contents/Resources;Windows 传 app/resources。
+const prevRel = process.argv[3] || "previous-extract/Codex.app/Contents/Resources/cua_node/lib/node_modules";
+const nextRel = process.argv[4] || "latest-reconstructed/Codex.app/Contents/Resources/cua_node/lib/node_modules";
+const roots = { prev: path.join(lab, prevRel), next: path.join(lab, nextRel) };
 
 function packages(root) {
   const out = new Map();
