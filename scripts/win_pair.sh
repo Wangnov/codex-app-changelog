@@ -40,6 +40,19 @@ PY
 unzip -p "$WORK/prev.msix"   AppxManifest.xml > "$WORK/AppxManifest-prev.xml" 2>/dev/null || true
 unzip -p "$WORK/latest.msix" AppxManifest.xml > "$WORK/AppxManifest-new.xml"  2>/dev/null || true
 
+# metadata(供 build_llm_input 读);Windows 版本号取自 AppxManifest 的 Identity Version
+ver_of() { sed -nE 's/.*<Identity[^>]* Version="([^"]+)".*/\1/p' "$1" | head -1; }
+PREV_VER="$(ver_of "$WORK/AppxManifest-prev.xml")"; TO_VER="$(ver_of "$WORK/AppxManifest-new.xml")"
+{
+  printf 'mode\tfull-pair\nplatform\twindows\n'
+  printf 'previous_short\t%s\nprevious_build\t%s\n' "$PREV_VER" "$PREV_VER"
+  printf 'latest_short\t%s\nlatest_build\t%s\n' "$TO_VER" "$TO_VER"
+  printf 'previous_full_url\thttps://github.com/%s/releases/tag/%s\n' "$REPO" "$FROM_TAG"
+  printf 'latest_full_url\thttps://github.com/%s/releases/tag/%s\n' "$REPO" "$TO_TAG"
+  printf 'previous_full_sha256\t%s\n' "$(shasum -a 256 "$WORK/prev.msix" | awk '{print $1}')"
+  printf 'latest_full_sha256\t%s\n' "$(shasum -a 256 "$WORK/latest.msix" | awk '{print $1}')"
+} > "$WORK/metadata.tsv"
+
 echo "[win] 解包 app.asar…"
 PREV_ASAR="$WORK/previous-extract/app/resources/app.asar"
 LATEST_ASAR="$WORK/latest-reconstructed/app/resources/app.asar"

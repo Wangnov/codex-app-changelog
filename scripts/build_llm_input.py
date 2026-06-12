@@ -119,8 +119,10 @@ def main():
             out.append(f"- 移除: `{r['path']}` ({mb(r['size'])})")
 
     # ---- cua_node 总量 ----
-    prev_cua = dir_size(w / "previous-extract/Codex.app/Contents/Resources/cua_node")
-    new_cua = dir_size(w / "latest-reconstructed/Codex.app/Contents/Resources/cua_node")
+    _cua = ("app/resources/cua_node" if os.environ.get("CL_PLATFORM") == "windows"
+            else "Codex.app/Contents/Resources/cua_node")
+    prev_cua = dir_size(w / "previous-extract" / _cua)
+    new_cua = dir_size(w / "latest-reconstructed" / _cua)
     if prev_cua and new_cua:
         out.append(section("Computer Use 运行时(cua_node)总量"))
         out.append(f"- {mb(prev_cua)} → {mb(new_cua)} "
