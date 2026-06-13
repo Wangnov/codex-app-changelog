@@ -47,8 +47,19 @@ PREV_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PREV_APP/Cont
 TO_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$LATEST_APP/Contents/Info.plist")
 PREV_SHA=$(shasum -a 256 "$PREV_ZIP" | awk '{print $1}')
 TO_SHA=$(shasum -a 256 "$LATEST_ZIP" | awk '{print $1}')
+
+# 官方 appcast 是否为这一对(PREV_BUILD→TO_BUILD)提供增量包?增量包文件名形如
+# Codex<to>-<from>-arm64.delta。有 = 仍在增量窗口内(我们主动选 full-pair,不能声称"超窗口");
+# 无 = 真·历史回填(超窗口)。网络失败按"无"保守处理(退回历史回填措辞)。
+DELTA_AVAILABLE=false
+if curl -fsS --connect-timeout 15 "$BASE/appcast.xml" 2>/dev/null \
+     | grep -q "Codex${TO_BUILD}-${PREV_BUILD}-"; then
+  DELTA_AVAILABLE=true
+fi
+echo "[backfill ${FROM} -> ${TO}] 官方增量包覆盖这一对: ${DELTA_AVAILABLE}"
 {
   printf 'mode\tfull-pair\n'
+  printf 'official_delta_available\t%s\n' "$DELTA_AVAILABLE"
   printf 'previous_short\t%s\n' "$FROM"
   printf 'previous_build\t%s\n' "$PREV_BUILD"
   printf 'previous_pub\t%s\n' "$FROM_DATE"

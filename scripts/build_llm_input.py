@@ -63,12 +63,20 @@ def main():
 
     out.append(section("验证与可复现"))
     if meta.get("mode") == "full-pair":
-        # 历史回填:超出 appcast 增量窗口,下载两个官方全量包直接比较。
-        # 信任根为 Apple 公证 + OpenAI Developer ID 代码签名(codesign/spctl)。
-        out.append("本版为历史回填:两个版本均超出官方 Sparkle 增量窗口,改为下载两个官方全量包"
-                   "直接比较。下方给出两个全量包的 SHA-256 与代码签名/公证的实际验证结果。"
-                   "注意:部分早期版本的签名证书后来被吊销,验证会显示 `CSSMERR_TP_CERT_REVOKED` —— "
-                   "这只影响该版本能否被系统安全安装,不影响对其 bundle 内容做差异分析;若出现请如实说明。")
+        # full-pair:下载两个官方全量包直接比较。措辞按「官方是否为这一对提供增量包」分流,
+        # 避免对仍在增量窗口内的当前版本谎称"超出增量窗口"(违背只用事实的原则):
+        #   official_delta_available=true  → 官方有增量包,我们主动选全量包 → 中性表述;
+        #   official_delta_available=false → 官方无增量包(真·历史回填,超窗口)→ 保留原表述。
+        # 信任根均为 Apple 公证 + OpenAI Developer ID 代码签名(codesign/spctl)+ 全量包 SHA-256。
+        if meta.get("official_delta_available") == "true":
+            out.append("本版采用两个官方全量包直接比较(full-pair):官方 appcast 对这一对版本提供了增量包,"
+                       "但本流程主动选择完整全量包以覆盖完整 bundle 内容,代价是不引用官方增量包自带的 "
+                       "EdDSA 验签。下方给出两个全量包的 SHA-256 与代码签名/公证的实际验证结果。")
+        else:
+            out.append("本版为历史回填:官方 appcast 未对这一对版本提供增量包(通常因已超出 Sparkle 增量窗口),"
+                       "改为下载两个官方全量包直接比较。下方给出两个全量包的 SHA-256 与代码签名/公证的实际验证结果。"
+                       "注意:部分早期版本的签名证书后来被吊销,验证会显示 `CSSMERR_TP_CERT_REVOKED` —— "
+                       "这只影响该版本能否被系统安全安装,不影响对其 bundle 内容做差异分析;若出现请如实说明。")
         out.append(f"- 上一版全量包: {meta.get('previous_full_url','?')}")
         out.append(f"  - SHA-256: `{meta.get('previous_full_sha256','?')}`")
         out.append(f"- 最新版全量包: {meta.get('latest_full_url','?')}")
