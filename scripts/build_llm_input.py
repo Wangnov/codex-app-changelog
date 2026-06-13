@@ -173,6 +173,22 @@ def main():
         if tgt.get("asar_removed_stems"):
             out.append("移除模块: " + ", ".join(f"`{x}`" for x in tgt["asar_removed_stems"]))
 
+    # ---- 主进程 bundle 新增可读字符串(.vite/build 改名文件里的真实代码变化)----
+    # main-<hash>.js 每版改名,逐文件 hash 配对会把它当重命名噪音而漏掉代码变化。
+    # diff_asar.mjs 已提取新增字符串字面量,这里作为"关键信号"喂给 LLM——这是发现
+    # SQLite 迁移这类后端/主进程变化的主要线索(26.609.41114 曾因缺此段而漏判)。
+    vsd = rep.get("viteStringDiff", {}) if acd.exists() else {}
+    if vsd.get("added"):
+        out.append(section("主进程/前端 bundle 新增可读字符串(关键信号)"))
+        out.append("> `.vite/build/main-<hash>.js` 等主进程 bundle 每版改名,逐文件 hash 配对会漏掉其"
+                   "真实代码变化。下面是新版 bundle 里**新增的可读字符串字面量**(messageId 与英文 UI 文案)"
+                   "——[实证]:字符串确凿存在于二进制,可据此判断新增功能方向;但仍是压缩代码,无法还原"
+                   "完整源码语义。这是发现迁移/新功能最重要的线索之一,请重点分析,勿当噪音略过。")
+        for s in vsd["added"]:
+            out.append(f"- `{s}`")
+        if vsd.get("removed"):
+            out.append("\n移除的可读字符串(供参考): " + ", ".join(f"`{x}`" for x in vsd["removed"]))
+
     # ---- Info.plist ----
     ip = tgt.get("info_plist")
     if ip and not ip.get("error"):

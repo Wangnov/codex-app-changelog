@@ -49,11 +49,39 @@ const changedRows = changed
   .map(p => ({ path: p, old: pm[p].size, new: nm[p].size, delta: nm[p].size - pm[p].size }))
   .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 
+// ---- 主进程 bundle(.vite/build/*.js)新增可读字符串 ----
+// 这些文件名带构建 hash(main-<hash>.js),每版改名。按精确路径配对时它们落入 added/removed,
+// 看起来只是"重命名噪音",真正的代码变化(新增 messageId / UI 文案 / 迁移逻辑)被埋没——
+// 这正是 26.609.41114 的 SQLite backfill 一度被漏判的原因。改为提取 .vite/build 下所有 *.js 的
+// 可读字符串字面量做集合差,surface 新增的高信号字符串([实证]:字面量确凿存在)。
+function viteStrings(map, root) {
+  const acc = new Set();
+  for (const rel of Object.keys(map)) {
+    if (!rel.startsWith(".vite/build/") || !rel.endsWith(".js")) continue;
+    const txt = fs.readFileSync(path.join(root, rel), "utf8");
+    for (const m of txt.matchAll(/[`'"]([^`'"\n]{4,90})[`'"]/g)) {
+      const s = m[1];
+      // messageId / 事件名:点分命名(如 codex.sqliteBackfillProgress.title)
+      if (/^[a-z][a-zA-Z0-9]+(\.[a-zA-Z0-9_]+){1,4}$/.test(s)) { acc.add(s); continue; }
+      // 自然语言 UI 文案:含空格、仅可读标点、排除代码片段
+      if (s.includes(" ") && /^[A-Za-z(]/.test(s)
+          && /^[A-Za-z0-9 ,.:;!?()'"/—-]+$/.test(s)
+          && !/[;{}]|=>|:return|\bcase\b|\bfunction\b|prototype|\(0,|\?[A-Za-z]|\([a-z]\)/.test(s)
+          && (s.match(/[A-Za-z]{2,}/g) || []).length >= 2) { acc.add(s); continue; }
+    }
+  }
+  return acc;
+}
+const vp = viteStrings(pm, prev), vn = viteStrings(nm, next);
+const viteAdded = [...vn].filter(s => !vp.has(s)).sort();
+const viteRemoved = [...vp].filter(s => !vn.has(s)).sort();
+
 const report = {
   summary: { prev: Object.keys(pm).length, next: Object.keys(nm).length,
              added: added.length, removed: removed.length, changed: changed.length },
   addedGroups: byGroup(added, nm), removedGroups: byGroup(removed, pm),
   changedGroups: byGroup(changed, nm), changedTop: changedRows.slice(0, 100),
-  addedSample: added.slice(0, 100), removedSample: removed.slice(0, 100) };
+  addedSample: added.slice(0, 100), removedSample: removed.slice(0, 100),
+  viteStringDiff: { added: viteAdded.slice(0, 150), removed: viteRemoved.slice(0, 80) } };
 fs.writeFileSync(path.join(lab, "asar-content-diff.json"), JSON.stringify(report, null, 2));
-console.log("[diff_asar]", JSON.stringify(report.summary));
+console.log("[diff_asar]", JSON.stringify({ ...report.summary, viteAdded: viteAdded.length, viteRemoved: viteRemoved.length }));
