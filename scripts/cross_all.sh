@@ -6,13 +6,20 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIMIT="${1:-0}"
 
-# 含 macOS 配对的 release tags,按 macOS build(tag 里 mac- 后的 -b<N>)递增排序 + 去重。
-# 不用 createdAt:mirror 有 force 重镜像,创建时间顺序 ≠ 版本顺序,会导致 from>to 倒序。
+# 含 macOS 配对的 release tags。关键:按 macOS short version(而非 build)去重。
+# 官方全量包按 Codex-darwin-arm64-<short>.zip 命名(URL 不含 build),同一 short 的多个
+# build(如 26.609.41114 的 b3888/b3942)下载的是同一个 zip,backfill_pair 无法区分;
+# 若两者都保留,相邻对会退化成 short 自比 —— backfill 把同一个包和自己 diff,macOS 侧
+# 全空、零发现,还可能用空篇覆盖好篇。故每个 short 只留最大 build 的 tag(代表该 short 的
+# 最终状态),再按 build 递增排序(build 全局单调 = 版本顺序;不用 createdAt,force 重镜像会乱序)。
 TAGS=()
 while IFS= read -r t; do TAGS+=("$t"); done < <(
   gh release list --repo Wangnov/codex-app-mirror --limit 60 --json tagName \
     --jq '.[].tagName' | grep -E '\-mac(-arm64)?-[0-9]' \
-    | sed -E 's/.*-mac(-arm64)?-[0-9.]+-b([0-9]+).*/\2\t&/' | sort -n -k1 -u | cut -f2)
+    | sed -E 's/.*-mac(-arm64)?-([0-9.]+)-b([0-9]+).*/\2\t\3\t&/' \
+    | sort -t$'\t' -k1,1 -k2,2n \
+    | awk -F'\t' '{keep[$1]=$0} END{for (k in keep) print keep[k]}' \
+    | sort -t$'\t' -k2,2n | cut -f3)
 
 echo "含 macOS 配对的 release: ${#TAGS[@]} 个 → $(( ${#TAGS[@]} - 1 )) 对"
 done_n=0; i=1
@@ -20,7 +27,10 @@ while [ $i -lt ${#TAGS[@]} ]; do
   from="${TAGS[$((i-1))]}"; to="${TAGS[$i]}"; i=$((i+1))
   short=$(echo "$to" | sed -nE 's/.*-mac(-arm64)?-([0-9.]+)-b[0-9]+.*/\2/p')
   [ -z "$short" ] && continue
-  if [ -f "$ROOT/releases/v${short}.md" ] && grep -q 'win_version' "$ROOT/releases/v${short}.md" 2>/dev/null; then
+  mkdir -p "$ROOT/work/regen"
+  if [ -f "$ROOT/work/regen/${short}.done" ]; then echo "[skip] v${short}(本批已完成)"; continue; fi
+  # FORCE=1 绕过"已是双平台"跳过,用于全量重生成(配合 work/regen/*.done 断点续跑)。
+  if [ "${FORCE:-0}" != "1" ] && [ -f "$ROOT/releases/v${short}.md" ] && grep -q 'win_version' "$ROOT/releases/v${short}.md" 2>/dev/null; then
     echo "[skip] v${short}(已是双平台)"; continue
   fi
   W="$ROOT/work/cross/$short"; mkdir -p "$W"
@@ -29,6 +39,7 @@ while [ $i -lt ${#TAGS[@]} ]; do
     cp "$W/changelog.md" "$ROOT/releases/v${short}.md"
     mkdir -p "$ROOT/releases/en"
     cp "$W/changelog-en.md" "$ROOT/releases/en/v${short}.md" 2>/dev/null || true
+    touch "$ROOT/work/regen/${short}.done"
     echo "[ok] v${short}"
   else
     echo "[FAIL] v${short}(见 $W/run.log)"
