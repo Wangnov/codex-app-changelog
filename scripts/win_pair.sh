@@ -69,4 +69,7 @@ node "$ROOT/scripts/diff_asar.mjs" "$WORK"
 node "$ROOT/scripts/diff_packages.mjs" "$WORK" \
   previous-extract/app/resources/cua_node/bin/node_modules \
   latest-reconstructed/app/resources/cua_node/bin/node_modules
+# 定向文本 diff(关键文件 unified diff / CSP / AppxManifest 权限 / 前端 stem 增删)。
+# 此前 Windows 路径漏调本步,导致 Windows 事实包没有最强的【实证】层。依赖上面两步的 JSON。
+CL_PLATFORM=windows python3 "$ROOT/scripts/diff_targeted.py" --work "$WORK"
 echo "[win] 完成。Windows diff JSON 已就绪。"

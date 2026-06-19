@@ -76,12 +76,125 @@ const vp = viteStrings(pm, prev), vn = viteStrings(nm, next);
 const viteAdded = [...vn].filter(s => !vp.has(s)).sort();
 const viteRemoved = [...vp].filter(s => !vn.has(s)).sort();
 
+// ---- 前端资产 stem 级内容线索 ----
+// webview/assets 下的大多数文件每版都会因为 hash 改名落入 added/removed。
+// 只看 stem 的新增/删除会漏掉“同一个组件内部样式或文案改变”的 UI 变化。
+// 这里把同名 stem 的新旧文件配对,抽取少量可读字符串和样式类名集合差。
+function assetStemMap(map) {
+  const out = new Map();
+  const rx = /^webview\/assets\/(.+)-[A-Za-z0-9_-]{8}\.(js|css)$/;
+  for (const rel of Object.keys(map)) {
+    const m = rel.match(rx);
+    if (!m) continue;
+    const key = `${m[1]}.${m[2]}`;
+    out.set(key, { stem: m[1], ext: m[2], rel, size: map[rel].size, sha: map[rel].sha });
+  }
+  return out;
+}
+
+function literalSet(txt) {
+  const acc = new Set();
+  for (const m of txt.matchAll(/[`'"]([^`'"\n]{3,140})[`'"]/g)) {
+    const s = m[1].trim();
+    if (!s) continue;
+    if (looksLikeClassList(s)) continue;
+    if (/^\.\.?\//.test(s) || /^https?:\/\//.test(s) || /^data:/.test(s)) continue;
+    if (/\.(js|css|svg|png|jpg|jpeg|webp|gif|woff2?|ttf|wasm)$/i.test(s)) continue;
+    if (/^[A-Za-z0-9_-]{8,}$/.test(s)) continue;
+    if (/^[A-Za-z_$][\w$]*$/.test(s) && s.length < 18) continue;
+    if (/[{};=<>]/.test(s) || /=>|\(0,|prototype|\bfunction\b|\bthrow\b|\breturn\b/.test(s)) continue;
+    if (/^[a-z][a-zA-Z0-9]+(\.[a-zA-Z0-9_]+){1,6}$/.test(s)) {
+      acc.add(s);
+      continue;
+    }
+    if (s.includes(" ") && /^[A-Za-z0-9 ,.:;!?()'"/—–-]+$/.test(s)
+        && (s.match(/[A-Za-z]{2,}/g) || []).length >= 2) {
+      acc.add(s);
+    }
+  }
+  return acc;
+}
+
+function looksLikeClassList(s) {
+  const tokens = s.split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return false;
+  let hits = 0;
+  for (let token of tokens) {
+    token = token.replace(/^!/, "");
+    if (/[-:\[\]\/]/.test(token)
+        || /^(flex|grid|block|inline|hidden|relative|absolute|fixed|sticky|items|justify|gap|w|h|size|px|py|pt|pr|pb|pl|mx|my|mt|mr|mb|ml|rounded|border|bg|text|font|leading|opacity|shadow|ring|outline|overflow|truncate|whitespace|cursor|transition|z|top|right|bottom|left|inset)$/.test(token)) {
+      hits++;
+    }
+  }
+  return hits / tokens.length >= 0.7;
+}
+
+function classTokenSet(txt) {
+  const acc = new Set();
+  for (const m of txt.matchAll(/[`'"]([^`'"\n]{3,260})[`'"]/g)) {
+    const s = m[1];
+    if (!/[-:\[\]\/ ]/.test(s)) continue;
+    for (let raw of s.split(/\s+/)) {
+      raw = raw.trim().replace(/^!/, "");
+      if (raw.length < 3 || raw.length > 90) continue;
+      if (raw.includes("${") || raw.includes("{") || raw.includes("}")) continue;
+      if (/[=;,()]/.test(raw) || raw.endsWith(":") || raw.includes("Symbol.for")) continue;
+      if (!/[-:\[\]\/]/.test(raw)) continue;
+      if (!/^(?:@?container|group|peer|aria-|data-|dark|electron-dark|hover|focus|active|disabled|enabled|has-|not-|motion-|sm|md|lg|xl|2xl|flex|grid|block|inline|hidden|relative|absolute|fixed|sticky|items|justify|content|self|gap|space|w|h|min|max|size|p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|rounded|border|bg|text|font|leading|tracking|opacity|shadow|ring|outline|overflow|truncate|line-clamp|whitespace|break|select|cursor|transition|duration|ease|animate|z|top|right|bottom|left|inset|translate|scale|rotate|origin|object|aspect|divide|backdrop|blur|sr-only)/.test(raw)) continue;
+      acc.add(raw);
+    }
+  }
+  return acc;
+}
+
+function sampleDiff(a, b, limit) {
+  return [...b].filter(x => !a.has(x)).sort().slice(0, limit);
+}
+
+function frontendStemDiffs() {
+  const pp = assetStemMap(pm);
+  const nn = assetStemMap(nm);
+  const rows = [];
+  const visibleRx = /(composer|status|run|task|progress|toast|tooltip|button|dialog|panel|sidebar|header|footer|input|voice|browser|download|permission|settings|model|reasoning|plugin|skill|record|replay|automation|worktree|pull-request|usage|rate-limit|environment|session|history|home|onboarding)/i;
+  for (const [key, pinfo] of pp.entries()) {
+    const ninfo = nn.get(key);
+    if (!ninfo || pinfo.sha === ninfo.sha) continue;
+    const ptxt = fs.readFileSync(path.join(prev, pinfo.rel), "utf8");
+    const ntxt = fs.readFileSync(path.join(next, ninfo.rel), "utf8");
+    const ps = literalSet(ptxt), ns = literalSet(ntxt);
+    const pc = classTokenSet(ptxt), nc = classTokenSet(ntxt);
+    const addedStrings = sampleDiff(ps, ns, 12);
+    const removedStrings = sampleDiff(ns, ps, 8);
+    const addedClasses = sampleDiff(pc, nc, 18);
+    const removedClasses = sampleDiff(nc, pc, 12);
+    if (!addedStrings.length && !removedStrings.length && !addedClasses.length && !removedClasses.length) continue;
+    const visibleText = [pinfo.stem, ...addedStrings, ...removedStrings].join(" ");
+    const score = addedStrings.length * 8 + removedStrings.length * 3
+      + addedClasses.length * 2 + removedClasses.length
+      + (visibleRx.test(visibleText) ? 40 : 0)
+      + Math.min(20, Math.abs(ninfo.size - pinfo.size) / 200);
+    rows.push({
+      stem: pinfo.stem, ext: pinfo.ext,
+      oldPath: pinfo.rel, newPath: ninfo.rel,
+      oldSize: pinfo.size, newSize: ninfo.size, delta: ninfo.size - pinfo.size,
+      addedStrings, removedStrings, addedClasses, removedClasses, score
+    });
+  }
+  return rows.sort((a, b) => b.score - a.score || Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 40);
+}
+
 const report = {
   summary: { prev: Object.keys(pm).length, next: Object.keys(nm).length,
              added: added.length, removed: removed.length, changed: changed.length },
   addedGroups: byGroup(added, nm), removedGroups: byGroup(removed, pm),
   changedGroups: byGroup(changed, nm), changedTop: changedRows.slice(0, 100),
   addedSample: added.slice(0, 100), removedSample: removed.slice(0, 100),
-  viteStringDiff: { added: viteAdded.slice(0, 150), removed: viteRemoved.slice(0, 80) } };
+  viteStringDiff: { added: viteAdded.slice(0, 150), removed: viteRemoved.slice(0, 80) },
+  frontendStemDiff: frontendStemDiffs() };
 fs.writeFileSync(path.join(lab, "asar-content-diff.json"), JSON.stringify(report, null, 2));
-console.log("[diff_asar]", JSON.stringify({ ...report.summary, viteAdded: viteAdded.length, viteRemoved: viteRemoved.length }));
+console.log("[diff_asar]", JSON.stringify({
+  ...report.summary,
+  viteAdded: viteAdded.length,
+  viteRemoved: viteRemoved.length,
+  frontendStemDiff: report.frontendStemDiff.length
+}));

@@ -24,6 +24,10 @@ MAX_DIFF_LINES = 200                # 单个 unified diff 截断行数
 NOISE_SUBSTR = ("webview/assets/", "_CodeSignature", "CodeResources",
                 "/Assets.car", ".vite/build/")  # hash 命名 / 签名噪音
 
+# 平台口径与 build_llm_input.py 保持一致:Windows 走 MSIX 的 app/ 布局与 AppxManifest,
+# macOS 走 .app 的 Contents/ 布局与 Info.plist。asar/CSP/关键文本 diff 两平台共用。
+IS_WIN = os.environ.get("CL_PLATFORM") == "windows"
+
 
 def is_text(path: str) -> bool:
     low = path.lower()
@@ -79,6 +83,46 @@ def diff_plist(prev: pathlib.Path, new: pathlib.Path):
     return {"changed": changed, "added": added, "removed": removed}
 
 
+def diff_appxmanifest(prev: pathlib.Path, new: pathlib.Path):
+    """AppxManifest.xml 是 Windows 的 Info.plist 等价物。提取 capabilities(权限)、
+    协议关联、文件类型关联做集合差 —— 比整树拍平噪音小、信号强。这些是 Windows 侧
+    最高价值的【实证】权限信号,此前完全没有任何脚本提取(纯盲区)。"""
+    import xml.etree.ElementTree as ET
+
+    def parse(p: pathlib.Path):
+        if not p.exists():
+            return None
+        try:
+            root = ET.fromstring(p.read_bytes())
+        except Exception as e:
+            return {"error": str(e)}
+        caps, protocols, exts = set(), set(), set()
+        for el in root.iter():
+            tag = el.tag.rsplit("}", 1)[-1]  # 去 XML namespace
+            if tag in ("Capability", "DeviceCapability"):
+                if el.get("Name"):
+                    caps.add(el.get("Name"))
+            elif tag == "Protocol" and el.get("Name"):
+                protocols.add(el.get("Name"))
+            elif tag == "FileType" and (el.text or "").strip():
+                exts.add(el.text.strip())
+        return {"caps": caps, "protocols": protocols, "exts": exts}
+
+    a, b = parse(prev), parse(new)
+    if a is None or b is None:
+        return None
+    if "error" in a or "error" in b:
+        return {"error": a.get("error") or b.get("error")}
+    return {
+        "added_capabilities": sorted(b["caps"] - a["caps"]),
+        "removed_capabilities": sorted(a["caps"] - b["caps"]),
+        "added_protocols": sorted(b["protocols"] - a["protocols"]),
+        "removed_protocols": sorted(a["protocols"] - b["protocols"]),
+        "added_file_types": sorted(b["exts"] - a["exts"]),
+        "removed_file_types": sorted(a["exts"] - b["exts"]),
+    }
+
+
 CSP_RE = re.compile(r'Content-Security-Policy"\s+content="([^"]*)"', re.I)
 CONNECT_RE = re.compile(r"connect-src([^;]*)")
 
@@ -126,19 +170,27 @@ def main():
     ap.add_argument("--work", required=True)
     args = ap.parse_args()
     work = pathlib.Path(args.work)
-    prev_app = work / "previous-extract" / "Codex.app"
-    new_app = work / "latest-reconstructed" / "Codex.app"
+    if IS_WIN:
+        prev_app = work / "previous-extract" / "app"
+        new_app = work / "latest-reconstructed" / "app"
+    else:
+        prev_app = work / "previous-extract" / "Codex.app"
+        new_app = work / "latest-reconstructed" / "Codex.app"
     prev_asar = work / "asar-prev-extract"
     new_asar = work / "asar-latest-extract"
 
-    out = {"info_plist": None, "csp": [], "bundle_text_diffs": [],
+    out = {"info_plist": None, "appx_manifest": None, "csp": [], "bundle_text_diffs": [],
            "asar_text_diffs": [], "added_plugins": [], "added_resources": [],
            "asar_added_stems": [], "asar_removed_stems": []}
 
-    # 1) Info.plist 结构化差异
-    pp, np_ = prev_app / "Contents/Info.plist", new_app / "Contents/Info.plist"
-    if pp.exists() and np_.exists():
-        out["info_plist"] = diff_plist(pp, np_)
+    # 1) Info.plist(macOS)/ AppxManifest(Windows)结构化差异
+    if IS_WIN:
+        out["appx_manifest"] = diff_appxmanifest(
+            work / "AppxManifest-prev.xml", work / "AppxManifest-new.xml")
+    else:
+        pp, np_ = prev_app / "Contents/Info.plist", new_app / "Contents/Info.plist"
+        if pp.exists() and np_.exists():
+            out["info_plist"] = diff_plist(pp, np_)
 
     # 2) bundle 内文本文件 diff(来自 file-diff-summary.changed_top)
     fds = work / "file-diff-summary.json"
@@ -156,24 +208,27 @@ def main():
             out["bundle_text_diffs"].append({
                 "path": path, "old_size": r.get("old_size"),
                 "new_size": r.get("new_size"), "diff": unified(a, b, path)})
-    # 新增插件:直接扫 Contents/PlugIns 目录对比(不依赖被截断的 added 列表)
-    pp_dir, np_dir = prev_app / "Contents/PlugIns", new_app / "Contents/PlugIns"
-    prev_plugins = {p.name for p in pp_dir.iterdir()} if pp_dir.exists() else set()
-    new_plugins = {p.name for p in np_dir.iterdir()} if np_dir.exists() else set()
-    for name in sorted(new_plugins - prev_plugins):
-        entry = {"path": f"Contents/PlugIns/{name}"}
-        entry.update(codesign_info(np_dir / name))
-        out["added_plugins"].append(entry)
+    # 新增插件 / 顶层资源:依赖 .app 的 Contents/ 结构与 codesign,macOS 专属。
+    # Windows(MSIX app/ 布局)的新增组件改由 file-diff-summary 的 added 列表覆盖。
+    if not IS_WIN:
+        # 新增插件:直接扫 Contents/PlugIns 目录对比(不依赖被截断的 added 列表)
+        pp_dir, np_dir = prev_app / "Contents/PlugIns", new_app / "Contents/PlugIns"
+        prev_plugins = {p.name for p in pp_dir.iterdir()} if pp_dir.exists() else set()
+        new_plugins = {p.name for p in np_dir.iterdir()} if np_dir.exists() else set()
+        for name in sorted(new_plugins - prev_plugins):
+            entry = {"path": f"Contents/PlugIns/{name}"}
+            entry.update(codesign_info(np_dir / name))
+            out["added_plugins"].append(entry)
 
-    # 新增顶层资源(图标等):扫 Contents/Resources 顶层文件对比
-    pr_dir, nr_dir = prev_app / "Contents/Resources", new_app / "Contents/Resources"
-    if pr_dir.exists() and nr_dir.exists():
-        prev_top = {p.name for p in pr_dir.iterdir() if p.is_file()}
-        for p in nr_dir.iterdir():
-            if (p.is_file() and p.name not in prev_top
-                    and p.suffix.lower() in {".png", ".icns", ".jpg", ".jpeg", ".svg"}):
-                out["added_resources"].append(
-                    {"path": f"Contents/Resources/{p.name}", "size": p.stat().st_size})
+        # 新增顶层资源(图标等):扫 Contents/Resources 顶层文件对比
+        pr_dir, nr_dir = prev_app / "Contents/Resources", new_app / "Contents/Resources"
+        if pr_dir.exists() and nr_dir.exists():
+            prev_top = {p.name for p in pr_dir.iterdir() if p.is_file()}
+            for p in nr_dir.iterdir():
+                if (p.is_file() and p.name not in prev_top
+                        and p.suffix.lower() in {".png", ".icns", ".jpg", ".jpeg", ".svg"}):
+                    out["added_resources"].append(
+                        {"path": f"Contents/Resources/{p.name}", "size": p.stat().st_size})
 
     # 3) app.asar 内文本文件 diff + CSP(来自 asar-content-diff.changedTop)
     acd = work / "asar-content-diff.json"
@@ -209,8 +264,11 @@ def main():
 
     (work / "targeted-diff.json").write_text(
         json.dumps(out, indent=2, ensure_ascii=False))
-    print(f"targeted-diff.json: "
-          f"info_plist={'ok' if out['info_plist'] else 'n/a'} "
+    am = out["appx_manifest"] if isinstance(out["appx_manifest"], dict) else {}
+    manifest_stat = (f"appx_caps=+{len(am.get('added_capabilities', []))}"
+                     f"/-{len(am.get('removed_capabilities', []))}" if IS_WIN
+                     else f"info_plist={'ok' if out['info_plist'] else 'n/a'}")
+    print(f"targeted-diff.json: {manifest_stat} "
           f"bundle_diffs={len(out['bundle_text_diffs'])} "
           f"asar_diffs={len(out['asar_text_diffs'])} "
           f"csp={len(out['csp'])} plugins={len(out['added_plugins'])} "

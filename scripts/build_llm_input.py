@@ -38,6 +38,88 @@ def dir_size(root: pathlib.Path):
     return total
 
 
+def read_json(p: pathlib.Path):
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(errors="replace"))
+    except Exception:
+        return None
+
+
+def read_text_excerpt(p: pathlib.Path, max_lines=80, max_chars=6000):
+    if not p.exists():
+        return None
+    text = p.read_text(errors="replace")
+    lines = text.splitlines()
+    excerpt = "\n".join(lines[:max_lines])
+    if len(excerpt) > max_chars:
+        excerpt = excerpt[:max_chars] + "\n... [截断]"
+    elif len(lines) > max_lines:
+        excerpt += f"\n... [截断,共 {len(lines)} 行]"
+    return excerpt
+
+
+def bundle_roots(w: pathlib.Path):
+    if os.environ.get("CL_PLATFORM") == "windows":
+        return (
+            w / "previous-extract" / "app",
+            w / "latest-reconstructed" / "app",
+            pathlib.Path("resources/plugins/openai-bundled/plugins"),
+        )
+    return (
+        w / "previous-extract" / "Codex.app",
+        w / "latest-reconstructed" / "Codex.app",
+        pathlib.Path("Contents/Resources/plugins/openai-bundled/plugins"),
+    )
+
+
+def top_files(root: pathlib.Path, limit=8):
+    rows = []
+    if not root.exists():
+        return rows
+    for p in root.rglob("*"):
+        if not p.is_file():
+            continue
+        try:
+            rows.append((p.stat().st_size, str(p.relative_to(root))))
+        except OSError:
+            pass
+    rows.sort(reverse=True)
+    return [{"path": path, "size": size} for size, path in rows[:limit]]
+
+
+def plugin_summary(plugin_root: pathlib.Path):
+    manifest = read_json(plugin_root / ".codex-plugin" / "plugin.json")
+    mcp = read_json(plugin_root / ".mcp.json")
+    skills = []
+    skills_dir = plugin_root / "skills"
+    if skills_dir.exists():
+        for skill_md in sorted(skills_dir.glob("*/SKILL.md")):
+            skills.append({
+                "path": str(skill_md.relative_to(plugin_root)),
+                "excerpt": read_text_excerpt(skill_md, max_lines=70, max_chars=5000),
+            })
+    iface = (manifest or {}).get("interface") or {}
+    return {
+        "name": (manifest or {}).get("name") or plugin_root.name,
+        "version": (manifest or {}).get("version"),
+        "description": (manifest or {}).get("description"),
+        "keywords": (manifest or {}).get("keywords") or [],
+        "displayName": iface.get("displayName"),
+        "shortDescription": iface.get("shortDescription"),
+        "longDescription": iface.get("longDescription"),
+        "category": iface.get("category"),
+        "defaultPrompt": iface.get("defaultPrompt") or [],
+        "manifest": manifest,
+        "mcp": mcp,
+        "skills": skills,
+        "fileCount": sum(1 for p in plugin_root.rglob("*") if p.is_file()) if plugin_root.exists() else 0,
+        "totalSize": dir_size(plugin_root),
+        "topFiles": top_files(plugin_root),
+    }
+
+
 def section(title):
     return f"\n## {title}\n"
 
@@ -126,6 +208,65 @@ def main():
         for r in rep.get("removed", []):
             out.append(f"- 移除: `{r['path']}` ({mb(r['size'])})")
 
+    # ---- 内置插件清单变化 ----
+    # 新增插件通常代表一个完整能力面,不能只靠体积 top-N 或 marketplace diff 间接提示。
+    # 对任意新增/移除的 openai-bundled plugin,直接暴露 manifest、MCP 入口、技能说明和主要文件。
+    prev_bundle_root, new_bundle_root, plugin_rel = bundle_roots(w)
+    prev_plugin_root = prev_bundle_root / plugin_rel
+    new_plugin_root = new_bundle_root / plugin_rel
+    if prev_plugin_root.exists() and new_plugin_root.exists():
+        prev_plugins = {p.name: p for p in prev_plugin_root.iterdir() if p.is_dir()}
+        new_plugins = {p.name: p for p in new_plugin_root.iterdir() if p.is_dir()}
+        added_plugins = sorted(set(new_plugins) - set(prev_plugins))
+        removed_plugins = sorted(set(prev_plugins) - set(new_plugins))
+        if added_plugins or removed_plugins:
+            out.append(section("内置插件清单变化"))
+            out.append("- 上一版内置插件: " + ", ".join(f"`{x}`" for x in sorted(prev_plugins)))
+            out.append("- 最新版内置插件: " + ", ".join(f"`{x}`" for x in sorted(new_plugins)))
+            if added_plugins:
+                out.append("\n新增内置插件明细:")
+                for name in added_plugins:
+                    summary = plugin_summary(new_plugins[name])
+                    out.append(f"\n### `{name}`")
+                    out.append(f"- 文件数: {summary['fileCount']}, 总大小: {mb(summary['totalSize'])}")
+                    if summary.get("version"):
+                        out.append(f"- 版本: `{summary['version']}`")
+                    for key, label in [
+                        ("displayName", "显示名"),
+                        ("description", "插件描述"),
+                        ("shortDescription", "短描述"),
+                        ("longDescription", "长描述"),
+                        ("category", "分类"),
+                    ]:
+                        if summary.get(key):
+                            out.append(f"- {label}: {summary[key]}")
+                    if summary.get("keywords"):
+                        out.append("- 关键词: " + ", ".join(f"`{x}`" for x in summary["keywords"]))
+                    if summary.get("defaultPrompt"):
+                        out.append("- 默认提示:")
+                        for prompt in summary["defaultPrompt"]:
+                            out.append(f"  - {prompt}")
+                    if summary.get("mcp"):
+                        out.append("- MCP 服务:")
+                        for server_name, server in (summary["mcp"].get("mcpServers") or {}).items():
+                            cmd = server.get("command")
+                            args_ = " ".join(server.get("args") or [])
+                            out.append(f"  - `{server_name}`: `{cmd}` {args_}".rstrip())
+                    if summary.get("skills"):
+                        out.append("- 技能说明摘录:")
+                        for skill in summary["skills"]:
+                            out.append(f"\n`{skill['path']}`:\n```markdown\n{skill['excerpt']}\n```")
+                    if summary.get("topFiles"):
+                        out.append("- 最大文件:")
+                        for row in summary["topFiles"]:
+                            out.append(f"  - `{row['path']}` ({mb(row['size'])})")
+            if removed_plugins:
+                out.append("\n移除内置插件:")
+                for name in removed_plugins:
+                    summary = plugin_summary(prev_plugins[name])
+                    desc = f" — {summary['description']}" if summary.get("description") else ""
+                    out.append(f"- `{name}`{desc}")
+
     # ---- cua_node 总量 ----
     _cua = ("app/resources/cua_node" if os.environ.get("CL_PLATFORM") == "windows"
             else "Codex.app/Contents/Resources/cua_node")
@@ -173,6 +314,26 @@ def main():
         if tgt.get("asar_removed_stems"):
             out.append("移除模块: " + ", ".join(f"`{x}`" for x in tgt["asar_removed_stems"]))
 
+    fsd = rep.get("frontendStemDiff", []) if acd.exists() else []
+    if fsd:
+        out.append(section("同名前端模块改动线索"))
+        out.append("> 这些模块在新旧版本都存在,但 hash 文件名不同且内容有变化。下面只列新增/移除的可读字符串"
+                   "和样式类名集合差。它们是 UI、状态或交互方向的【信号】,需要与文案、模块名、权限或配置互相印证,"
+                   "不能单独当作源码级事实。")
+        for row in fsd[:30]:
+            out.append(f"\n### `{row['stem']}` `{row['ext']}`")
+            out.append(f"- 文件: `{row['oldPath']}` → `{row['newPath']}`")
+            out.append(f"- 体积: {mb(row['oldSize'])} → {mb(row['newSize'])} "
+                       f"({row['delta']:+} bytes)")
+            if row.get("addedStrings"):
+                out.append("- 新增可读字符串: " + ", ".join(f"`{x}`" for x in row["addedStrings"]))
+            if row.get("removedStrings"):
+                out.append("- 移除可读字符串: " + ", ".join(f"`{x}`" for x in row["removedStrings"]))
+            if row.get("addedClasses"):
+                out.append("- 新增样式/状态类名: " + ", ".join(f"`{x}`" for x in row["addedClasses"]))
+            if row.get("removedClasses"):
+                out.append("- 移除样式/状态类名: " + ", ".join(f"`{x}`" for x in row["removedClasses"]))
+
     # ---- 主进程 bundle 新增可读字符串(.vite/build 改名文件里的真实代码变化)----
     # main-<hash>.js 每版改名,逐文件 hash 配对会把它当重命名噪音而漏掉代码变化。
     # diff_asar.mjs 已提取新增字符串字面量,这里作为"关键信号"喂给 LLM——这是发现
@@ -199,6 +360,24 @@ def main():
             out.append(f"- 移除 `{r['key']}` (旧值 {r['old']})")
         for r in ip.get("changed", []):
             out.append(f"- `{r['key']}`: {r['old']} → {r['new']}")
+
+    # ---- AppxManifest(Windows 权限/协议/文件类型)----
+    # Windows 的 Info.plist 等价物:capability 是高价值的权限【实证】信号。
+    am = tgt.get("appx_manifest")
+    if am and not am.get("error") and any(am.get(k) for k in (
+            "added_capabilities", "removed_capabilities", "added_protocols",
+            "removed_protocols", "added_file_types", "removed_file_types")):
+        out.append(section("AppxManifest 变化(Windows 权限/协议/文件类型)"))
+        for key, label in [
+            ("added_capabilities", "新增 capability(权限声明)"),
+            ("removed_capabilities", "移除 capability"),
+            ("added_protocols", "新增协议关联"),
+            ("removed_protocols", "移除协议关联"),
+            ("added_file_types", "新增文件类型关联"),
+            ("removed_file_types", "移除文件类型关联"),
+        ]:
+            if am.get(key):
+                out.append(f"- {label}: " + ", ".join(f"`{x}`" for x in am[key]))
 
     # ---- CSP ----
     if tgt.get("csp"):
