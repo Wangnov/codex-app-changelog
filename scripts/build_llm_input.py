@@ -399,15 +399,30 @@ def main():
             out.append(f"- 新增资源 `{r['path']}` ({mb(r['size'])})")
 
     # ---- 关键文本 diff ----
-    diffs = (tgt.get("bundle_text_diffs", []) + tgt.get("asar_text_diffs", []))
+    diffs = [d for d in (tgt.get("bundle_text_diffs", []) + tgt.get("asar_text_diffs", []))
+             if d.get("diff", "").strip()]
     if diffs:
         out.append(section("关键文件的具体改动(unified diff)"))
         out.append("> 这些是人类可读的源文件/配置/技能文档差异,是判断「具体改了什么」的最强证据。")
+        # 体积上限:双平台事实包合并后要喂给 LLM(约 1MB 输入硬限制),关键文件 diff 是体积大头
+        # (尤其补上 Windows 实证层后,大变化版本曾撑爆 1MB 致整对 LLM 失败)。小而精的 diff 优先
+        # (信息密度高、覆盖更多改动点),超预算的整文件级大 diff 省略并计数——宁可显式注明省略,
+        # 也不静默截断、更不让事实包超限。单平台预算留足双平台合并余量。
+        DIFF_BUDGET = 320_000
+        diffs.sort(key=lambda d: len(d["diff"]))
+        used, omitted = 0, []
         for d in diffs:
-            if not d["diff"].strip():
+            block = (f"\n### `{d['path']}`  ({mb(d.get('old_size',0))} → {mb(d.get('new_size',0))})\n\n"
+                     f"```diff\n{d['diff']}\n```")
+            if used and used + len(block) > DIFF_BUDGET:
+                omitted.append(d["path"])
                 continue
-            out.append(f"\n### `{d['path']}`  ({mb(d.get('old_size',0))} → {mb(d.get('new_size',0))})\n")
-            out.append("```diff\n" + d["diff"] + "\n```")
+            out.append(block)
+            used += len(block)
+        if omitted:
+            out.append(f"\n> 注:另有 {len(omitted)} 个文件的 diff 因体积上限省略(已优先保留体积小、"
+                       f"信息密度高的改动,以免事实包超出 LLM 输入限制):"
+                       + ", ".join(f"`{p}`" for p in omitted[:40]))
 
     text = "\n".join(out) + "\n"
     (w / "llm-input.md").write_text(text)

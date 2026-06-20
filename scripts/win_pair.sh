@@ -9,12 +9,21 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="Wangnov/codex-app-mirror"
 mkdir -p "$WORK"
 
-dl_msix() {  # tag dest
-  local tag="$1" dest="$2" tmp
+dl_msix() {  # tag dest —— gh release download 无内置重试,网络抖动(EOF/DNS timeout)会直接失败;
+             # 包一层重试 + 指数退避,避免瞬时抖动让整对 FAIL(mac 侧 curl 已有 --retry)。
+  local tag="$1" dest="$2" tmp i
   [ -s "$dest" ] && return 0
-  tmp="$WORK/.dl-$tag"; rm -rf "$tmp"; mkdir -p "$tmp"
-  gh release download "$tag" --repo "$REPO" --pattern '*.Msix' --dir "$tmp"
-  mv "$tmp"/*.Msix "$dest"; rm -rf "$tmp"
+  tmp="$WORK/.dl-$tag"
+  for i in 1 2 3 4 5; do
+    rm -rf "$tmp"; mkdir -p "$tmp"
+    if gh release download "$tag" --repo "$REPO" --pattern '*.Msix' --dir "$tmp" \
+       && mv "$tmp"/*.Msix "$dest" 2>/dev/null; then
+      rm -rf "$tmp"; return 0
+    fi
+    echo "[win] MSIX 下载失败(第 $i/5 次),$((i*10))s 后重试…" >&2
+    sleep $((i*10))
+  done
+  rm -rf "$tmp"; echo "[win] MSIX 下载重试 5 次仍失败: $tag" >&2; return 1
 }
 echo "[win] 下载 MSIX($FROM_TAG → $TO_TAG)…"
 dl_msix "$FROM_TAG" "$WORK/prev.msix"
