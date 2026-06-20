@@ -1,0 +1,96 @@
+# 用修复后的单平台 pipeline 回填历史 macOS-only changelog(早期纯 macOS 版本,
+# mirror 无 Windows 配对,只能走 backfill_pair 全量包对比)。手动触发。
+#
+# 与 watch-and-build 的区别:那个是增量监控、只跑最新一对双平台;这个是一次性批量
+# 重生成历史 macOS-only 篇。单平台不涉及 Windows MSIX 下载与双平台事实包合并,较简单。
+#
+# 设计:逐篇独立跑,每篇成功(releases 有变化)就立即 commit+push;失败/无变化跳过不中断
+# (很老的版本若 oaistatic 已不提供全量包会下载失败,自动跳过)。
+#
+# 需要在仓库 Secrets 配置(与 watch-and-build 同):
+#   CODEX_AUTH_JSON   —— codex exec 的认证(本地是 ~/.codex/auth.json)
+#   CODEX_CONFIG_TOML —— (可选)codex 的 ~/.codex/config.toml
+name: regen-maconly
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: "要重生成的版本(空格分隔;留空=自动扫描所有无 win_version 的 macOS-only 篇)"
+        type: string
+        default: ""
+
+# 与 watch-and-build 共用一把 push 锁,避免两个 workflow 并发推送打架
+concurrency:
+  group: changelog-push
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  regen:
+    runs-on: macos-latest          # backfill 依赖 ditto / codesign / spctl,macOS 专属
+    timeout-minutes: 350           # 约 39 篇 × ~4min,留足下载重试余量(macOS runner 上限 6h)
+    env:
+      # 脚本含中文/箭头等多字节字符,CI 默认 LANG=C 会把 `$VAR→` 的箭头字节当变量名触发报错
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: pip install cryptography
+
+      - name: Setup Codex CLI
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          CODEX_CONFIG_TOML: ${{ secrets.CODEX_CONFIG_TOML }}
+        run: |
+          npm install -g @openai/codex
+          mkdir -p ~/.codex
+          printf '%s' "$CODEX_AUTH_JSON" > ~/.codex/auth.json
+          [ -n "$CODEX_CONFIG_TOML" ] && printf '%s' "$CODEX_CONFIG_TOML" > ~/.codex/config.toml || true
+
+      - name: Regenerate macOS-only changelogs
+        env:
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          versions="${{ github.event.inputs.versions }}"
+          if [ -z "$versions" ]; then
+            # 自动扫描:releases/v*.md 中无 win_version 的(纯 macOS-only),提取版本号
+            versions=$(for f in releases/v*.md; do
+              grep -q 'win_version' "$f" || basename "$f" | sed -E 's/^v//;s/\.md$//'
+            done | sort -V | tr '\n' ' ')
+          fi
+          echo "将重生成 $(echo $versions | wc -w) 篇:$versions"
+
+          ok=0; skip=0
+          for v in $versions; do
+            echo "::group::v$v"
+            # regen_maconly.sh 用 set -uo pipefail(无 -e),单篇失败不退出;以 releases 是否
+            # 变化作为成功判据,而非退出码。
+            scripts/regen_maconly.sh "$v" || echo "regen_maconly v$v 退出非 0"
+            if ! git diff --quiet -- "releases/v$v.md" "releases/en/v$v.md" 2>/dev/null; then
+              git add "releases/v$v.md" "releases/en/v$v.md"
+              git commit -m "chore(changelog): 用修复后 pipeline 重生成 macOS-only v$v"
+              # 防并发:push 前先 rebase 最新 main(watch-and-build 可能同时在推)
+              for attempt in 1 2 3; do
+                git pull --rebase --autostash origin main && git push && break
+                echo "push 第 $attempt 次失败,5s 后重试…"; sleep 5
+              done
+              ok=$((ok+1))
+            else
+              echo "::warning::v$v 无变化或重生成失败(可能 oaistatic 已无该版本全量包),跳过"
+              skip=$((skip+1))
+            fi
+            echo "::endgroup::"
+          done
+          echo "=== 完成:成功 $ok 篇,跳过/失败 $skip 篇 ==="
