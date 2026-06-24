@@ -16,10 +16,10 @@ TAGS=()
 while IFS= read -r t; do TAGS+=("$t"); done < <(
   gh release list --repo Wangnov/codex-app-mirror --limit 60 --json tagName \
     --jq '.[].tagName' | grep -E '\-mac(-arm64)?-[0-9]' \
-    | sed -E 's/.*-mac(-arm64)?-([0-9.]+)-b([0-9]+).*/\2\t\3\t&/' \
-    | sort -t$'\t' -k1,1 -k2,2n \
+    | sed -nE 's/.*-win-([0-9.]+)-mac(-arm64)?-([0-9.]+)-b([0-9]+).*/\3\t\4\t\1\t&/p' \
+    | sort -t$'\t' -k1,1V -k2,2n -k3,3V \
     | awk -F'\t' '{keep[$1]=$0} END{for (k in keep) print keep[k]}' \
-    | sort -t$'\t' -k2,2n | cut -f3)
+    | sort -t$'\t' -k2,2n | cut -f4)
 
 echo "含 macOS 配对的 release: ${#TAGS[@]} 个 → $(( ${#TAGS[@]} - 1 )) 对"
 done_n=0; i=1

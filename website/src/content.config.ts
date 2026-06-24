@@ -20,13 +20,26 @@ const schema = z.object({
   platforms: z.array(z.string()).optional(),
 });
 
+const prefixedId =
+  (prefix: string) =>
+  ({ entry }: { entry: string }) =>
+    `${prefix}-${entry.replace(/\.md$/, '')}`;
+
 // 中英两套(由 scripts/sync-releases.mjs 从 releases/ 与 releases/en/ 同步进来)。
 const changelog_zh = defineCollection({
-  loader: glob({ pattern: '*.md', base: './src/content/changelog-zh' }),
+  loader: glob({
+    pattern: '*.md',
+    base: './src/content/changelog-zh',
+    generateId: prefixedId('zh'),
+  }),
   schema,
 });
 const changelog_en = defineCollection({
-  loader: glob({ pattern: '*.md', base: './src/content/changelog-en' }),
+  loader: glob({
+    pattern: '*.md',
+    base: './src/content/changelog-en',
+    generateId: prefixedId('en'),
+  }),
   schema,
 });
 

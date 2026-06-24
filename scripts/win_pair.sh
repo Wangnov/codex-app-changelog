@@ -7,6 +7,12 @@ set -euo pipefail
 FROM_TAG="${1:?from release tag}"; TO_TAG="${2:?to release tag}"; WORK="${3:?work dir}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="Wangnov/codex-app-mirror"
+WIN_MSIX_ARCH="${WIN_MSIX_ARCH:-x64}"
+case "$WIN_MSIX_ARCH" in
+  x64|arm64) ;;
+  *) echo "[win] 不支持的 WIN_MSIX_ARCH: $WIN_MSIX_ARCH" >&2; exit 2 ;;
+esac
+MSIX_PATTERN="*_${WIN_MSIX_ARCH}__*.Msix"
 mkdir -p "$WORK"
 
 dl_msix() {  # tag dest —— gh release download 无内置重试,网络抖动(EOF/DNS timeout)会直接失败;
@@ -16,9 +22,13 @@ dl_msix() {  # tag dest —— gh release download 无内置重试,网络抖动(
   tmp="$WORK/.dl-$tag"
   for i in 1 2 3 4 5; do
     rm -rf "$tmp"; mkdir -p "$tmp"
-    if gh release download "$tag" --repo "$REPO" --pattern '*.Msix' --dir "$tmp" \
-       && mv "$tmp"/*.Msix "$dest" 2>/dev/null; then
-      rm -rf "$tmp"; return 0
+    if gh release download "$tag" --repo "$REPO" --pattern "$MSIX_PATTERN" --dir "$tmp"; then
+      local files=()
+      while IFS= read -r -d '' file; do files+=("$file"); done < <(find "$tmp" -maxdepth 1 -name '*.Msix' -print0)
+      if [ "${#files[@]}" -eq 1 ] && mv "${files[0]}" "$dest"; then
+        rm -rf "$tmp"; return 0
+      fi
+      echo "[win] MSIX 匹配数异常: ${#files[@]} (tag=$tag pattern=$MSIX_PATTERN)" >&2
     fi
     echo "[win] MSIX 下载失败(第 $i/5 次),$((i*10))s 后重试…" >&2
     sleep $((i*10))
