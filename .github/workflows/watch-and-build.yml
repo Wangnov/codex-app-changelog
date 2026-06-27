@@ -37,24 +37,34 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 取 mirror 最新两个"不同 macOS short version"的 release(tag 编码 win+mac 版本)。
+          # 取 mirror 最新两个"不同 Codex 应用版本"的 release。
+          # 兼容旧 tag(编码 win+mac 版本)与新 tag(codex-app-<version>)。
           # 同一 macOS build 可能连续发布多个 Windows-only tag;若直接取原始最新两个,
           # 会退化成 macOS 自比,并可能用 Windows-only 内容覆盖同一篇 changelog。
           mapfile -t tags < <(
             gh release list --repo Wangnov/codex-app-mirror --limit 60 --json tagName \
-              --jq '.[].tagName' | grep -E '\-mac(-arm64)?-[0-9]' \
-              | sed -nE 's/.*-win-([0-9.]+)-mac(-arm64)?-([0-9.]+)-b([0-9]+).*/\3\t\4\t\1\t&/p' \
+              --jq '.[].tagName' \
+              | sed -nE \
+                  -e 's/.*-win-([0-9.]+)-mac(-arm64)?-([0-9.]+)-b([0-9]+).*/\3\t\4\t\1\t&/p' \
+                  -e 's/^codex-app-([0-9]+(\.[0-9]+)+)$/\1\t0\t0\t&/p' \
               | sort -t$'\t' -k1,1V -k2,2n -k3,3V \
               | awk -F'\t' '{keep[$1]=$0} END{for (k in keep) print keep[k]}' \
-              | sort -t$'\t' -k2,2n | cut -f4
+              | sort -t$'\t' -k1,1V -k2,2n -k3,3V | cut -f4
           )
           if [ "${#tags[@]}" -lt 2 ]; then
-            echo "mirror 中含 macOS 配对的 release 不足 2 个" >&2
+            echo "mirror 中可用于比较的 release 不足 2 个" >&2
             exit 1
           fi
           from_tag="${tags[$((${#tags[@]}-2))]}"
           to_tag="${tags[$((${#tags[@]}-1))]}"
-          short=$(echo "$to_tag" | sed -nE 's/.*-mac(-arm64)?-([0-9.]+)-b[0-9]+.*/\2/p')
+          short=$(echo "$to_tag" | sed -nE \
+            -e 's/^codex-app-([0-9]+(\.[0-9]+)+)$/\1/p' \
+            -e 's/.*-mac(-arm64)?-([0-9.]+)-b[0-9]+.*/\2/p' \
+            | head -1)
+          if [ -z "$short" ]; then
+            echo "无法从 mirror tag 解析 Codex 应用版本: $to_tag" >&2
+            exit 1
+          fi
           echo "to_tag=$to_tag"     >> "$GITHUB_OUTPUT"
           echo "from_tag=$from_tag" >> "$GITHUB_OUTPUT"
           echo "short=$short"       >> "$GITHUB_OUTPUT"

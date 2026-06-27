@@ -7,8 +7,15 @@ FROM_TAG="${1:?from release tag}"; TO_TAG="${2:?to release tag}"; WORK="${3:?wor
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "$WORK"
 
-# 从 mirror tag 解析 macOS arm64 版本(支持 -mac-X 与 -mac-arm64-X 两种格式)
-mac_ver() { echo "$1" | sed -nE 's/.*-mac(-arm64)?-([0-9.]+)-b[0-9]+.*/\2/p'; }
+# 从 mirror tag 解析 macOS arm64 版本:
+#   - 旧格式: tag 编码 win+mac 版本
+#   - 新格式: codex-app-<版本>
+mac_ver() {
+  echo "$1" | sed -nE \
+    -e 's/^codex-app-([0-9]+(\.[0-9]+)+)$/\1/p' \
+    -e 's/.*-mac(-arm64)?-([0-9.]+)-b[0-9]+.*/\2/p' \
+    | head -1
+}
 MAC_FROM="$(mac_ver "$FROM_TAG")"; MAC_TO="$(mac_ver "$TO_TAG")"
 [ -n "$MAC_FROM" ] && [ -n "$MAC_TO" ] || { echo "tag 里没有 macOS 版本,跳过(可能是纯 Windows 批次)" >&2; exit 2; }
 
