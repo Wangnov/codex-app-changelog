@@ -149,4 +149,4 @@ jobs:
           cd website
           npm install
           npm run build
-          npx wrangler deploy
+          npm exec -- wrangler deploy
