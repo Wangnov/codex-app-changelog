@@ -20,7 +20,8 @@ MAC_FROM="$(mac_ver "$FROM_TAG")"; MAC_TO="$(mac_ver "$TO_TAG")"
 [ -n "$MAC_FROM" ] && [ -n "$MAC_TO" ] || { echo "tag 里没有 macOS 版本,跳过(可能是纯 Windows 批次)" >&2; exit 2; }
 
 echo "== [macOS] $MAC_FROM → $MAC_TO =="
-/bin/bash "$ROOT/scripts/backfill_pair.sh" "$MAC_FROM" "$MAC_TO" "$WORK/mac"   # 含 build_llm_input
+/bin/bash "$ROOT/scripts/backfill_pair.sh" \
+  "$MAC_FROM" "$MAC_TO" "$WORK/mac" "" "" "$FROM_TAG" "$TO_TAG"   # 含 build_llm_input
 
 echo "== [Windows] $FROM_TAG → $TO_TAG =="
 /bin/bash "$ROOT/scripts/win_pair.sh" "$FROM_TAG" "$TO_TAG" "$WORK/win"

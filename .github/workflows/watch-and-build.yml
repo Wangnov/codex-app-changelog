@@ -37,13 +37,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 取 mirror 最新两个"不同 Codex 应用版本"的 release。
+          # 取 mirror 稳定、macOS + Windows 资产齐全的 Codex release。
           # 兼容旧 tag(编码 win+mac 版本)与新 tag(codex-app-<version>)。
           # 同一 macOS build 可能连续发布多个 Windows-only tag;若直接取原始最新两个,
           # 会退化成 macOS 自比,并可能用 Windows-only 内容覆盖同一篇 changelog。
           mapfile -t tags < <(
-            gh release list --repo Wangnov/codex-app-mirror --limit 60 --json tagName \
-              --jq '.[].tagName' \
+            gh api 'repos/Wangnov/codex-app-mirror/releases?per_page=100' \
+              --jq '.[]
+                | select(.draft == false and .prerelease == false)
+                | select(any(.assets[]; .name | test("^Codex-darwin-arm64-[0-9.]+[.]zip$")))
+                | select(any(.assets[]; .name | test("^OpenAI[.]Codex_.*_x64__.*[.]Msix$")))
+                | .tag_name' \
               | sed -nE \
                   -e 's/.*-win-([0-9.]+)-mac(-arm64)?-([0-9.]+)-b([0-9]+).*/\3\t\4\t\1\t&/p' \
                   -e 's/^codex-app-([0-9]+(\.[0-9]+)+)$/\1\t0\t0\t&/p' \
@@ -55,8 +59,28 @@ jobs:
             echo "mirror 中可用于比较的 release 不足 2 个" >&2
             exit 1
           fi
-          from_tag="${tags[$((${#tags[@]}-2))]}"
-          to_tag="${tags[$((${#tags[@]}-1))]}"
+          selected_index=""
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            selected_index=$((${#tags[@]}-1))
+          else
+            for ((i=1; i<${#tags[@]}; i++)); do
+              candidate=$(echo "${tags[$i]}" | sed -nE \
+                -e 's/^codex-app-([0-9]+(\.[0-9]+)+)$/\1/p' \
+                -e 's/.*-mac(-arm64)?-([0-9.]+)-b[0-9]+.*/\2/p' \
+                | head -1)
+              if [ -n "$candidate" ] && [ ! -f "releases/v${candidate}.md" ]; then
+                selected_index="$i"
+                break
+              fi
+            done
+          fi
+          if [ -z "$selected_index" ]; then
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo "稳定双平台 release 已全部生成 changelog。"
+            exit 0
+          fi
+          from_tag="${tags[$((selected_index-1))]}"
+          to_tag="${tags[$selected_index]}"
           short=$(echo "$to_tag" | sed -nE \
             -e 's/^codex-app-([0-9]+(\.[0-9]+)+)$/\1/p' \
             -e 's/.*-mac(-arm64)?-([0-9.]+)-b[0-9]+.*/\2/p' \
@@ -68,11 +92,8 @@ jobs:
           echo "to_tag=$to_tag"     >> "$GITHUB_OUTPUT"
           echo "from_tag=$from_tag" >> "$GITHUB_OUTPUT"
           echo "short=$short"       >> "$GITHUB_OUTPUT"
-          if [ -f "releases/v${short}.md" ] && [ "${{ github.event.inputs.force }}" != "true" ]; then
-            echo "should_build=false" >> "$GITHUB_OUTPUT"; echo "releases/v${short}.md 已存在,跳过。"
-          else
-            echo "should_build=true" >> "$GITHUB_OUTPUT"; echo "将构建 ${short}($to_tag)。"
-          fi
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+          echo "将构建当前最早缺口 ${short}($from_tag -> $to_tag)。"
 
   build:
     needs: detect
@@ -105,6 +126,7 @@ jobs:
       - name: Run cross-platform pipeline
         env:
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
+          CODEX_REASONING: ${{ vars.CODEX_REASONING }}
           GH_TOKEN: ${{ github.token }}   # cross_pair 用 gh 拿 mirror 的 Windows MSIX
         run: |
           scripts/cross_pair.sh \

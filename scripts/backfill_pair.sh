@@ -3,13 +3,16 @@
 # 与 delta 模式的区别:没有官方增量包,也没有 appcast 的 EdDSA 签名;信任根改为
 # Apple 公证 + OpenAI Developer ID 代码签名(codesign / spctl)+ 全量包 SHA-256。
 #
-# 用法: backfill_pair.sh <from_version> <to_version> <work_dir> [from_date] [to_date]
+# 用法: backfill_pair.sh <from_version> <to_version> <work_dir> [from_date] [to_date] [from_tag] [to_tag]
 #   日期(YYYY-MM-DD)可选,用于 changelog 的发布日期;一般从 Homebrew cask commit 取。
+#   tag 可选;传入时从 mirror Release 下载已校验的全量包,避免上游历史 URL 失效。
 set -euo pipefail
 FROM="${1:?from version}"; TO="${2:?to version}"; WORK="${3:?work dir}"
 FROM_DATE="${4:-}"; TO_DATE="${5:-}"
+FROM_TAG="${6:-}"; TO_TAG="${7:-}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE="https://persistent.oaistatic.com/codex-app-prod"
+MIRROR_REPO="Wangnov/codex-app-mirror"
 mkdir -p "$WORK"
 
 dl() {  # url dest —— 已存在且非空则跳过(便于复用/续跑)
@@ -17,9 +20,20 @@ dl() {  # url dest —— 已存在且非空则跳过(便于复用/续跑)
   curl -fL --retry 5 --retry-all-errors --connect-timeout 20 --speed-time 60 --speed-limit 1024 "$1" -o "$2"
 }
 PREV_ZIP="$WORK/previous-$FROM.zip"; LATEST_ZIP="$WORK/latest-$TO.zip"
+full_url() {
+  local version="$1" tag="$2"
+  if [ -n "$tag" ]; then
+    printf 'https://github.com/%s/releases/download/%s/Codex-darwin-arm64-%s.zip\n' \
+      "$MIRROR_REPO" "$tag" "$version"
+  else
+    printf '%s/Codex-darwin-arm64-%s.zip\n' "$BASE" "$version"
+  fi
+}
+PREV_URL="$(full_url "$FROM" "$FROM_TAG")"
+LATEST_URL="$(full_url "$TO" "$TO_TAG")"
 echo "[backfill ${FROM} -> ${TO}] 下载全量包…"
-dl "$BASE/Codex-darwin-arm64-$FROM.zip" "$PREV_ZIP"
-dl "$BASE/Codex-darwin-arm64-$TO.zip" "$LATEST_ZIP"
+dl "$PREV_URL" "$PREV_ZIP"
+dl "$LATEST_URL" "$LATEST_ZIP"
 
 PREV_ROOT="$WORK/previous-extract"; LATEST_ROOT="$WORK/latest-reconstructed"
 PREV_APP="$PREV_ROOT/Codex.app"; LATEST_APP="$LATEST_ROOT/Codex.app"
@@ -66,9 +80,9 @@ echo "[backfill ${FROM} -> ${TO}] 官方增量包覆盖这一对: ${DELTA_AVAILA
   printf 'latest_short\t%s\n' "$TO"
   printf 'latest_build\t%s\n' "$TO_BUILD"
   printf 'latest_pub\t%s\n' "$TO_DATE"
-  printf 'previous_full_url\t%s\n' "$BASE/Codex-darwin-arm64-$FROM.zip"
+  printf 'previous_full_url\t%s\n' "$PREV_URL"
   printf 'previous_full_sha256\t%s\n' "$PREV_SHA"
-  printf 'latest_full_url\t%s\n' "$BASE/Codex-darwin-arm64-$TO.zip"
+  printf 'latest_full_url\t%s\n' "$LATEST_URL"
   printf 'latest_full_sha256\t%s\n' "$TO_SHA"
 } > "$WORK/metadata.tsv"
 
